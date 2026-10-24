@@ -31,14 +31,23 @@ upscale-image, to-jxl, from-jxl, transcode-jpeg-to-jxl-lossless, svg-to-raster,
 vectorize, auto-white-balance, auto-tone, auto-deskew, new-project, new-workflow,
 open-workspace, install-deps, ai-graphics, nano-tech-diagrams
 
-## Two defects found in this snapshot — worth knowing
+## One inconsistency found in this snapshot
 
-1. `plugin.json` lists `./skills/workspace-setup/SKILL.md` and
-   `./skills/web-ready/SKILL.md`, but **neither file exists in the repo**.
-   That means `commands/setup-workspace.md` (which calls the `workspace-setup`
-   skill) will fail. Workaround: create the workspace folders manually —
-   which is what `photos/` in this repo already is.
-2. The README documents version 2.0.0 while `plugin.json` says 2.3.2.
+The README documents **version 2.0.0** while `plugin.json` says **2.3.2**.
+Cosmetic — the plugin itself is complete: all 21 commands and 28 skills
+referenced by the manifest are present, including `workspace-setup` and
+`web-ready`.
+
+*(Correction: an earlier note here claimed two skills were missing. That was
+wrong — the file listing had been truncated. Both exist.)*
+
+## What `setup-workspace` does
+
+It registers a workspace path in
+`${CLAUDE_USER_DATA:-$HOME/.local/share/claude-plugins}/image-production/workspace.json`.
+`new-project` then creates `source/ working/ exports/ references/ thumbnails/`
+inside it. You can skip the registration step entirely and just point it at
+`photos/` in this repo — the folder layout here matches that convention.
 
 ## Dependencies in THIS sandbox
 
