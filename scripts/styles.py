@@ -93,6 +93,7 @@ class Style:
 
     # subject separation
     subject: bool = False
+    mask_radius: float = 0.30     # fraction of the long edge
     bg_temp: float = 0.0
     bg_sat: float = 0.0
     bg_clarity: float = 0.0
@@ -175,7 +176,7 @@ def apply_style(img: Image.Image, st: Style, debug_mask: Path | None = None) -> 
 
     # --- subject / background separation
     if st.subject:
-        mask = subject_mask(a, base_px)
+        mask = subject_mask(a, base_px, radius_frac=st.mask_radius)
         if debug_mask is not None:
             to_img(np.stack([mask, mask, mask], -1)).save(debug_mask)
         m = mask[..., None]
@@ -218,7 +219,8 @@ def apply_style(img: Image.Image, st: Style, debug_mask: Path | None = None) -> 
         for name, (smult, lmult) in st.hsl.items():
             if name not in HUE_RANGES:
                 continue
-            centre, width = HUE_RANGES[name]
+            start, end = HUE_RANGES[name]
+            centre, width = (start + end) / 2.0, (end - start)
             diff = np.abs((H - centre + 180) % 360 - 180)
             m = np.clip(1.0 - (diff / (width / 2.0)) ** 2, 0, 1)
             dS += (smult - 1.0) * m
@@ -300,8 +302,24 @@ def hue_to_rgb(hue_deg):
     return (r / s, g / s, b / s)
 
 
-def subject_mask(a, base_px, percentile=88):
-    """Find the sharpest region of the frame - usually the bird."""
+def find_subject(a, base_px, percentile=88):
+    """Return (cx, cy) pixel coords of the sharpest region - usually the bird."""
+    L = luma(a)
+    gy, gx = np.gradient(L)
+    sharp = np.sqrt(gx ** 2 + gy ** 2)
+    k = max(4, int(base_px / 160))
+    H, W = sharp.shape
+    kh, kw = max(1, H // k), max(1, W // k)
+    blocks = sharp[:kh * k, :kw * k].reshape(kh, k, kw, k).mean(axis=(1, 3))
+    thr = np.percentile(blocks, percentile)
+    ys, xs = np.nonzero(blocks >= thr)
+    if len(xs) == 0:
+        return W / 2.0, H / 2.0
+    return (xs.mean() + 0.5) * k, (ys.mean() + 0.5) * k
+
+
+def subject_mask(a, base_px, percentile=88, radius_frac=0.30):
+    """Feathered mask over the sharpest region of the frame."""
     L = luma(a)
     gy, gx = np.gradient(L)
     sharp = np.sqrt(gx ** 2 + gy ** 2)
@@ -315,14 +333,61 @@ def subject_mask(a, base_px, percentile=88):
     ys, xs = np.nonzero(hot)
     if len(xs) == 0:
         xs = np.array([blocks.shape[1] // 2]); ys = np.array([blocks.shape[0] // 2])
-    cy = (ys.mean() + 0.5) * k
-    cx = (xs.mean() + 0.5) * k
-    rad = base_px * 0.30
+    cx, cy = find_subject(a, base_px, percentile)
+    rad = base_px * radius_frac
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
     d = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2) / rad
     mask = np.clip(1.0 - d ** 2, 0, 1)
     mask = to_arr(to_img(np.stack([mask] * 3, -1)).filter(ImageFilter.GaussianBlur(base_px / 60.0)))[..., 0]
     return np.clip(mask / max(1e-6, mask.max()), 0, 1)
+
+
+RAW_EXT = {".cr3", ".cr2", ".craw", ".nef", ".arw", ".dng", ".raw", ".raf", ".orf", ".rw2"}
+
+
+def load_image(path: Path) -> Image.Image:
+    """Pillow cannot open RAW. Use rawpy (LibRaw) when the file needs it."""
+    if path.suffix.lower() not in RAW_EXT:
+        return Image.open(path).convert("RGB")
+    try:
+        import rawpy  # noqa
+    except ImportError:
+        raise SystemExit(
+            f"{path.name} is a RAW file and rawpy is not installed.\n"
+            f"  pip install rawpy     (then re-run — CR3 needs LibRaw 0.20+)\n"
+            f"  or export a JPEG/TIFF from Lightroom and point this script at that.")
+    import rawpy
+    with rawpy.imread(str(path)) as raw:
+        rgb = raw.postprocess(use_camera_wb=True, no_auto_bright=False,
+                              output_bps=8, gamma=(2.222, 4.5))
+    return Image.fromarray(rgb)
+
+
+def crop_around_subject(img: Image.Image, ratio: str) -> Image.Image:
+    """Largest window of `ratio`, positioned so the detected subject sits on a
+    rule-of-thirds line on the side of the frame it already favours."""
+    try:
+        rw, rh = (float(x) for x in ratio.split(":"))
+    except Exception:
+        raise SystemExit(f"bad ratio: {ratio} (try 3:2, 4:5, 16:9, 1:1)")
+    W, H = img.size
+    target = rw / rh
+    cw, ch = W, int(round(W / target))
+    if ch > H:
+        ch, cw = H, int(round(H * target))
+    cw, ch = min(cw, W), min(ch, H)
+
+    base_px = max(W, H)
+    cx, cy = find_subject(to_arr(img.resize((min(W, 900), int(900 * H / W)))), 900.0)
+    fx, fy = cx / min(W, 900), cy / int(900 * H / W)
+
+    tx = 1 / 3 if fx < 0.5 else 2 / 3
+    ty = 1 / 3 if fy < 0.5 else 2 / 3
+    left = int(round(fx * W - tx * cw))
+    top = int(round(fy * H - ty * ch))
+    left = max(0, min(left, W - cw))
+    top = max(0, min(top, H - ch))
+    return img.crop((left, top, left + cw, top + ch))
 
 
 # ------------------------------------------------------------------ the nine styles
@@ -334,6 +399,7 @@ def styles():
             exposure=-0.15, contrast=-0.12, highlights=0.55, shadows=0.28,
             whites=0.12, blacks=-0.18, texture=0.12, clarity=-0.08, dehaze=0.06,
             saturation=-0.06, vibrance=0.08,
+            curve_pts=[(0.0, 0.045), (0.25, 0.235), (0.5, 0.52), (0.75, 0.805), (1.0, 0.985)],
             hsl={"orange": (0.90, 1.12), "yellow": (0.70, 1.06), "green": (0.55, 0.88),
                  "aqua": (0.65, 0.94), "blue": (0.80, 0.86), "purple": (0.75, 1.0),
                  "magenta": (0.80, 1.0)},
@@ -424,7 +490,7 @@ def styles():
 
 
 # ------------------------------------------------------------------ contact sheet
-def contact_sheet(original: Image.Image, results: list, out: Path):
+def contact_sheet(original: Image.Image, results: list, out: Path, hero=None):
     try:
         from reportlab.lib.pagesizes import A4, landscape
         from reportlab.lib.units import mm
@@ -443,6 +509,21 @@ def contact_sheet(original: Image.Image, results: list, out: Path):
     tw = (pw - m * 2 - 8 * mm * (cols - 1)) / cols
     th = tw * 0.66
     top = ph - m - 10 * mm
+
+    if hero:
+        hpath, htitle, hnote = hero
+        hi = Image.open(hpath)
+        avail_w, avail_h = pw - m * 2, ph - m * 2 - 16 * mm
+        scale = min(avail_w / hi.size[0], avail_h / hi.size[1])
+        hw, hh = hi.size[0] * scale, hi.size[1] * scale
+        c.drawImage(str(hpath), (pw - hw) / 2, (ph - hh) / 2 + 4 * mm, width=hw, height=hh)
+        c.setFillColorRGB(0.086, 0.137, 0.165)
+        c.setFont("Body-Bold", 11)
+        c.drawString(m, m + 8 * mm, htitle)
+        c.setFont("Body", 7.5)
+        c.setFillColorRGB(0.35, 0.42, 0.46)
+        c.drawString(m, m + 4.5 * mm, hnote[:150])
+        c.showPage()
 
     c.setFillColorRGB(0.086, 0.137, 0.165)
     c.rect(0, ph - 12 * mm, pw, 12 * mm, stroke=0, fill=1)
@@ -478,6 +559,16 @@ def main() -> int:
     ap.add_argument("photo")
     ap.add_argument("--out", default=None)
     ap.add_argument("--only", default=None, help="comma separated style keys")
+    ap.add_argument("--max-width", type=int, default=3000)
+    ap.add_argument("--crop", default=None, help="3:2, 4:5, 16:9, 1:1 — crop around the detected subject")
+    ap.add_argument("--subject-radius", type=float, default=None,
+                    help="mask radius as a fraction of the long edge (default 0.30)")
+    ap.add_argument("--boost-subject", type=float, default=0.0,
+                    help="extra exposure + texture on the subject (0 = none)")
+    ap.add_argument("--set", default=None,
+                    help="override any numeric style field, e.g. contrast=0.10,highlights=0.35")
+    ap.add_argument("--hero", default=None, help="image to feature on a cover page")
+    ap.add_argument("--hero-caption", default="Recommended edit")
     ap.add_argument("--sheet", action="store_true", default=True)
     ap.add_argument("--jpeg-quality", type=int, default=92)
     args = ap.parse_args()
@@ -489,8 +580,16 @@ def main() -> int:
     out_dir = Path(args.out) if args.out else Path("photos/02-working/styles")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    img = Image.open(src).convert("RGB")
+    img = load_image(src)
     print(f"{src.name}  {img.size[0]}x{img.size[1]}")
+
+    if args.crop:
+        img = crop_around_subject(img, args.crop)
+        print(f"  cropped to {args.crop} around the detected subject -> {img.size[0]}x{img.size[1]}")
+
+    if args.max_width and img.size[0] > args.max_width:
+        h = int(img.size[1] * args.max_width / img.size[0])
+        img = img.resize((args.max_width, h), Image.LANCZOS)
 
     chosen = styles()
     if args.only:
@@ -498,7 +597,23 @@ def main() -> int:
         chosen = [s for s in chosen if s.key in keys or s.name in keys]
 
     results = []
+    overrides = {}
+    if args.set:
+        for pair in args.set.split(","):
+            if "=" in pair:
+                k, v = pair.split("=", 1)
+                overrides[k.strip()] = float(v)
+
     for st in chosen:
+        for k, v in overrides.items():
+            if hasattr(st, k):
+                st = replace(st, **{k: v})
+        if args.subject_radius is not None and st.subject:
+            st = replace(st, mask_radius=args.subject_radius)
+        if args.boost_subject and st.subject:
+            st = replace(st, subj_exposure=st.subj_exposure + args.boost_subject,
+                         subj_texture=st.subj_texture + args.boost_subject * 0.5,
+                         subj_temp=st.subj_temp + args.boost_subject * 0.3)
         tmp = out_dir / f"_tmp_{st.key}.jpg"
         edited = apply_style(img, st, debug_mask=out_dir / f"_mask_{st.key}.png" if st.subject else None)
         p = out_dir / f"{src.stem}__{st.key}.jpg"
@@ -510,7 +625,8 @@ def main() -> int:
 
     if args.sheet and results:
         sheet = out_dir / f"{src.stem}__STYLE-COMPARISON.pdf"
-        if contact_sheet(img, results, sheet):
+        hero = (args.hero, args.hero_caption, args.hero_caption) if args.hero else None
+        if contact_sheet(img, results, sheet, hero=hero):
             print(f"\nContact sheet: {sheet}")
         for _, p in results:
             p.unlink(missing_ok=True)
