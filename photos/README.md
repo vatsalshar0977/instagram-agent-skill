@@ -69,3 +69,28 @@ From the crop system in `photography-account/BRAND-KIT.md`:
   except this README. Originals live on a drive with a backup, not in git.
 - **Never edit `01-source/`.** If a frame needs work, it gets copied forward
   into `02-working/`. The original stays untouched, forever.
+
+## Getting photos in — if drag-and-drop or chat upload fails
+
+Image attachments do not always reach the agent. The path that always works is
+through git, because the agent can pull:
+
+1. Open the repo on GitHub and switch to the branch `arena/01a0cde6-instagram-agent-skill`
+2. Navigate into `photos/inbox/`
+3. **Add file → Upload files**, drag your photo in, commit
+4. Tell the agent: "pull the photo"
+
+The agent runs `git pull`, then `python3 scripts/ingest.py --run` to file it by
+date. This handles files far larger than chat attachments, and the photo is
+backed up on GitHub the moment it lands.
+
+## Applying the styles
+
+```bash
+python3 -m venv .svenv && .svenv/bin/pip install pillow numpy reportlab
+.svenv/bin/python scripts/styles.py photos/01-source/2026-11-08/IMG_1234.jpg
+```
+
+Writes one JPEG per style into `photos/02-working/styles/` plus a
+`__STYLE-COMPARISON.pdf` contact sheet. See `scripts/styles.py` for what it
+approximates and what it cannot do.
