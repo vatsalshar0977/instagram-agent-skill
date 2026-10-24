@@ -1,0 +1,63 @@
+{
+  "name": "image-production",
+  "description": "Claude Code plugin for image editing, batch operations, format conversion, and filesystem organisation of image libraries — bucket by resolution, aspect ratio, orientation, format, EXIF capture time, camera, and dedupe duplicates / near-duplicates.",
+  "version": "2.3.2",
+  "author": {
+    "name": "Daniel Rosehill",
+    "email": "public@danielrosehill.com",
+    "url": "https://danielrosehill.com"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/danielrosehill/Claude-Image-Production-Plugin",
+  "commands": [
+    "./commands/setup-workspace.md",
+    "./commands/apply-filters.md",
+    "./commands/batch-resize.md",
+    "./commands/bg-removal.md",
+    "./commands/compress-images.md",
+    "./commands/convert-to-webp.md",
+    "./commands/crop-images.md",
+    "./commands/dedupe.md",
+    "./commands/group-by-camera.md",
+    "./commands/group-by-time.md",
+    "./commands/images-here.md",
+    "./commands/install-gimp-plugin.md",
+    "./commands/organize-by-aspect-ratio.md",
+    "./commands/organize-by-format.md",
+    "./commands/organize-by-orientation.md",
+    "./commands/organize-by-resolution.md",
+    "./commands/scrub-small-images.md",
+    "./commands/separate-photos-and-video.md",
+    "./commands/sort-media.md"
+  ],
+  "skills": [
+    "./skills/scrub-metadata/SKILL.md",
+    "./skills/workspace-setup/SKILL.md",
+    "./skills/open-workspace/SKILL.md",
+    "./skills/new-project/SKILL.md",
+    "./skills/install-deps/SKILL.md",
+    "./skills/fast-resize/SKILL.md",
+    "./skills/fast-thumbnail/SKILL.md",
+    "./skills/optimize-png/SKILL.md",
+    "./skills/optimize-jpeg/SKILL.md",
+    "./skills/convert-to-avif/SKILL.md",
+    "./skills/web-ready/SKILL.md",
+    "./skills/images-to-pdf/SKILL.md",
+    "./skills/upscale-image/SKILL.md",
+    "./skills/to-jxl/SKILL.md",
+    "./skills/from-jxl/SKILL.md",
+    "./skills/transcode-jpeg-to-jxl-lossless/SKILL.md",
+    "./skills/pdf-to-images/SKILL.md",
+    "./skills/pdf-extract-embedded-images/SKILL.md",
+    "./skills/read-metadata/SKILL.md",
+    "./skills/set-metadata/SKILL.md",
+    "./skills/batch-set-copyright/SKILL.md"
+  ],
+  "keywords": [
+    "media-editing",
+    "image-editing",
+    "image-production",
+    "filesystem-organisation",
+    "exif"
+  ]
+}

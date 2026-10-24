@@ -1,0 +1,6 @@
+# Keep the folder structure in git, never the photographs.
+# RAW files and exports are far too large for a repository — store originals
+# on a drive and back them up separately.
+*
+!.gitignore
+!README.md
